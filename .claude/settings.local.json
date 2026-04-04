@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(.venv/Scripts/python -c \"from config import *; from synth import *; from audio import LiveSynth; print\\('All imports OK'\\)\")",
+      "Bash(.venv/Scripts/python -c \"from PyQt6.QtWidgets import QApplication; from config import *; from gesture import HandDetector; from audio import LiveSynth; print\\('All imports OK'\\)\")",
+      "Bash(.venv/Scripts/python app.py)"
+    ]
+  }
+}
