@@ -16,12 +16,17 @@
 # Aim for ~200–400 images per class. Move your hand around, vary angles.
 
 import os
+import sys
 import cv2
 import mediapipe as mp
 import numpy as np
-from config import CAMERA_INDEX, FRAME_WIDTH, FRAME_HEIGHT
 
-DATASET_DIR = "dataset"
+# Allow running directly: python training/collect_data.py
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _PROJECT_ROOT)
+from src.config import CAMERA_INDEX, FRAME_WIDTH, FRAME_HEIGHT
+
+DATASET_DIR = os.path.join(_PROJECT_ROOT, "dataset")
 IMG_SIZE = 64
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
@@ -120,10 +125,9 @@ def main():
             hand = results.multi_hand_landmarks[0]
             mp_label = results.multi_handedness[0].classification[0].label
 
-            mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
             detected_fingers = count_fingers(hand, mp_label)
 
-            # Crop hand region
+            # Crop hand region BEFORE drawing landmarks (clean image for CNN)
             x1, y1, x2, y2 = get_hand_bbox(hand, frame.shape)
             hand_roi = frame[y1:y2, x1:x2]
 
@@ -131,7 +135,9 @@ def main():
                 gray = cv2.cvtColor(hand_roi, cv2.COLOR_BGR2GRAY)
                 hand_crop = cv2.resize(gray, (IMG_SIZE, IMG_SIZE))
 
-                # Draw bounding box
+            # Draw landmarks and bounding box AFTER cropping
+            mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
+            if hand_roi.size > 0:
                 color = (0, 255, 0) if collecting else (255, 255, 0)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 

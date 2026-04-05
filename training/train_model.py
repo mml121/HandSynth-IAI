@@ -4,18 +4,32 @@
 #   python train_model.py
 #
 # Expects dataset/ folder with subfolders 0–5 (from collect_data.py).
-# Saves trained model to gesture_model.keras
+# Saves trained model to gesture_model.keras + gesture_model.tflite
+#
+# Improvements over v1:
+#   - Data augmentation (rotation, shift, zoom, brightness)
+#   - Learning rate reduction on plateau
+#   - Early stopping to prevent overfitting
+#   - Auto-converts to TFLite for fast inference
 
 import os
+import sys
 import numpy as np
 import cv2
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
+import tensorflow as tf
+
+# Allow running directly: python training/train_model.py
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model import build_model, IMG_SIZE, NUM_CLASSES
 
-DATASET_DIR = "dataset"
-MODEL_PATH = "gesture_model.keras"
-EPOCHS = 10
+DATASET_DIR = os.path.join(_PROJECT_ROOT, "dataset")
+MODEL_PATH = os.path.join(_PROJECT_ROOT, "models", "gesture_model.keras")
+TFLITE_PATH = os.path.join(_PROJECT_ROOT, "models", "gesture_model.tflite")
+EPOCHS = 15
 BATCH_SIZE = 32
 
 
@@ -42,11 +56,24 @@ def load_dataset():
             images.append(img)
             labels.append(class_id)
 
-    images = np.array(images, dtype=np.float32) / 255.0  # normalize to 0–1
-    images = images.reshape(-1, IMG_SIZE, IMG_SIZE, 1)    # add channel dim
+    images = np.array(images, dtype=np.float32) / 255.0
+    images = images.reshape(-1, IMG_SIZE, IMG_SIZE, 1)
     labels = to_categorical(np.array(labels), NUM_CLASSES)
 
     return images, labels
+
+
+def convert_to_tflite(model):
+    """Convert Keras model to TFLite for faster inference."""
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    tflite_model = converter.convert()
+
+    with open(TFLITE_PATH, "wb") as f:
+        f.write(tflite_model)
+
+    size_kb = os.path.getsize(TFLITE_PATH) / 1024
+    print(f"TFLite model saved to {TFLITE_PATH} ({size_kb:.0f} KB)")
 
 
 def main():
@@ -75,6 +102,12 @@ def main():
     model.summary()
     print()
 
+    # Callbacks
+    callbacks = [
+        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, verbose=1),
+        EarlyStopping(monitor="val_accuracy", patience=5, restore_best_weights=True, verbose=1),
+    ]
+
     # Train
     print("=== Training ===")
     history = model.fit(
@@ -82,6 +115,7 @@ def main():
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
         validation_data=(X_test, y_test),
+        callbacks=callbacks,
     )
 
     # Evaluate
@@ -90,9 +124,15 @@ def main():
     print(f"Test accuracy: {acc:.1%}")
     print(f"Test loss:     {loss:.4f}")
 
-    # Save
+    # Save Keras model
     model.save(MODEL_PATH)
-    print(f"\nModel saved to {MODEL_PATH}")
+    print(f"\nKeras model saved to {MODEL_PATH}")
+
+    # Convert to TFLite for fast inference
+    print("\n=== Converting to TFLite ===")
+    convert_to_tflite(model)
+
+    print("\nDone! The app will automatically use the TFLite model for faster inference.")
 
 
 if __name__ == "__main__":

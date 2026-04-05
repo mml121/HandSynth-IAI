@@ -1,3 +1,20 @@
 .claude
 CLAUDE.md
-microwaver59.com__ref=godly (1).png
+
+# Models (large binary files)
+models/*.keras
+models/*.tflite
+
+# Python
+__pycache__/
+*.pyc
+
+# Dataset (user-collected)
+dataset/
+
+# IDE
+.idea/
+.vscode/
+
+# Virtual environment
+.venv/

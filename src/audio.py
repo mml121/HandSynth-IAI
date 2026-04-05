@@ -3,8 +3,8 @@
 import threading
 import numpy as np
 import sounddevice as sd
-from config import SAMPLE_RATE, BLOCK_SIZE
-from synth import get_samples
+from src.config import SAMPLE_RATE, BLOCK_SIZE
+from src.synth import get_samples
 
 
 class LiveSynth:

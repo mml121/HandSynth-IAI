@@ -10,9 +10,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QFont, QFontDatabase
 
-from gesture import HandDetector
-from audio import LiveSynth
-from config import (
+from src.gesture import HandDetector
+from src.audio import LiveSynth
+from src.config import (
     CAMERA_INDEX, FRAME_WIDTH, FRAME_HEIGHT, UI_FPS,
     RIGHT_HAND_MAP, LEFT_HAND_MAP, DEFAULT_VOLUME,
     get_frequency,
@@ -82,7 +82,11 @@ QSlider::sub-page:horizontal {
 #  CAMERA THREAD
 # ────────────────────────────────────────────────────────────────
 class CameraWorker(QThread):
-    """Captures frames and detects gestures in a background thread."""
+    """Captures frames and detects gestures in a background thread.
+
+    Uses a frame-skip strategy: if processing is slow, it grabs (discards)
+    buffered frames so the UI always shows the most recent camera image.
+    """
     frame_ready = pyqtSignal(object, int, int)
 
     def __init__(self):
@@ -90,20 +94,34 @@ class CameraWorker(QThread):
         self._running = False
 
     def run(self):
+        import time
         self._running = True
         detector = HandDetector()
         cap = cv2.VideoCapture(CAMERA_INDEX)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize internal buffer lag
+
+        target_interval = 1.0 / UI_FPS
 
         while self._running and cap.isOpened():
+            t0 = time.perf_counter()
+
+            # Grab the latest frame (skip buffered stale frames)
             ret, frame = cap.read()
             if not ret:
                 break
+
             frame = cv2.flip(frame, 1)
             frame, left_f, right_f = detector.process_frame(frame)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             self.frame_ready.emit(rgb, left_f, right_f)
+
+            # Throttle to target FPS to avoid overloading the UI
+            elapsed = time.perf_counter() - t0
+            remaining = target_interval - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
 
         cap.release()
         detector.release()
