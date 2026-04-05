@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QFont, QFontDatabase
 
-from src.gesture import HandDetector
+from src.gesture import HandDetector, has_cnn_model
 from src.audio import LiveSynth
 from src.config import (
     CAMERA_INDEX, FRAME_WIDTH, FRAME_HEIGHT, UI_FPS,
@@ -89,14 +89,22 @@ class CameraWorker(QThread):
     """
     frame_ready = pyqtSignal(object, int, int)
 
-    def __init__(self):
+    def __init__(self, use_cnn=False):
         super().__init__()
         self._running = False
+        self._use_cnn = use_cnn
+        self._detector = None
+
+    def set_use_cnn(self, value):
+        self._use_cnn = value
+        if self._detector is not None:
+            self._detector.use_cnn = value
 
     def run(self):
         import time
         self._running = True
-        detector = HandDetector()
+        detector = HandDetector(use_cnn=self._use_cnn)
+        self._detector = detector
         cap = cv2.VideoCapture(CAMERA_INDEX)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
@@ -217,6 +225,7 @@ class App(QMainWindow):
         self._synth = LiveSynth()
         self._synth.start()
         self._cam_worker = None
+        self._use_cnn = False
         self._cur_note = None
         self._cur_freq = 0.0
         self._cur_waveform = "sine"
@@ -321,6 +330,21 @@ class App(QMainWindow):
 
         right.addLayout(btn_row)
 
+        right.addSpacing(15)
+
+        # ── Mode toggle (CNN / Rules) ─────────────────────────
+        self._mode_btn = QPushButton("MODE: RULES")
+        self._mode_btn.setFont(self._btn_font())
+        self._mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._mode_btn.clicked.connect(self._toggle_mode)
+        if not has_cnn_model():
+            self._mode_btn.setEnabled(False)
+            self._mode_btn.setToolTip("No CNN model found — train one first")
+        mode_row = QHBoxLayout()
+        mode_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mode_row.addWidget(self._mode_btn)
+        right.addLayout(mode_row)
+
         right.addSpacerItem(QSpacerItem(0, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
         # ── Guide (very subtle, bottom) ───────────────────────
@@ -345,7 +369,7 @@ class App(QMainWindow):
         if self._cam_worker and self._cam_worker.isRunning():
             return
 
-        self._cam_worker = CameraWorker()
+        self._cam_worker = CameraWorker(use_cnn=self._use_cnn)
         self._cam_worker.frame_ready.connect(self._on_frame)
         self._cam_worker.start()
 
@@ -427,6 +451,20 @@ class App(QMainWindow):
             self._cur_freq = 0
             self._note_circle.set_state("", "", False)
             self._freq_label.setText("")
+
+    def _toggle_mode(self):
+        self._use_cnn = not self._use_cnn
+        label = "CNN" if self._use_cnn else "RULES"
+        self._mode_btn.setText(f"MODE: {label}")
+        if self._use_cnn:
+            self._mode_btn.setObjectName("active")
+        else:
+            self._mode_btn.setObjectName("")
+        self._mode_btn.setStyleSheet(self._mode_btn.styleSheet())
+
+        # Update running camera worker if active
+        if self._cam_worker and self._cam_worker.isRunning():
+            self._cam_worker.set_use_cnn(self._use_cnn)
 
     # ────────────────────────────────────────────────────────
     #  CALLBACKS

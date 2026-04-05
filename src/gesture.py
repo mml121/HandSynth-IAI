@@ -22,30 +22,47 @@ IMG_SIZE = 64
 SMOOTHING_WINDOW = 5       # majority vote over last N frames per hand
 CONFIDENCE_THRESHOLD = 0.6  # reject predictions below this
 
-# ── Load the trained model: prefer TFLite, fall back to Keras, then rules ──
+# ── CNN model (loaded lazily on first use) ──
 _tflite_interpreter = None
 _tflite_input_details = None
 _tflite_output_details = None
 _cnn_model = None
+_cnn_loaded = False
 
-if os.path.exists(TFLITE_PATH):
-    import tensorflow as tf
-    _tflite_interpreter = tf.lite.Interpreter(model_path=TFLITE_PATH)
-    _tflite_interpreter.allocate_tensors()
-    _tflite_input_details = _tflite_interpreter.get_input_details()
-    _tflite_output_details = _tflite_interpreter.get_output_details()
-    print(f"[gesture] Loaded TFLite model from {TFLITE_PATH} (fast inference)")
-elif os.path.exists(MODEL_PATH):
-    import tensorflow as tf
-    _cnn_model = tf.keras.models.load_model(MODEL_PATH)
-    # Warm up the model with a dummy input to avoid first-call lag
-    _dummy = np.zeros((1, IMG_SIZE, IMG_SIZE, 1), dtype=np.float32)
-    _cnn_model(_dummy, training=False)
-    print(f"[gesture] Loaded Keras model from {MODEL_PATH}")
-    print(f"          Run convert_to_tflite.py for faster inference")
-else:
-    print(f"[gesture] No model found — using rule-based finger counting")
-    print(f"          Run collect_data.py then train_model.py to train the CNN")
+
+def _load_cnn():
+    """Load CNN model on first use. Returns True if a model was loaded."""
+    global _tflite_interpreter, _tflite_input_details, _tflite_output_details
+    global _cnn_model, _cnn_loaded
+
+    if _cnn_loaded:
+        return _tflite_interpreter is not None or _cnn_model is not None
+
+    _cnn_loaded = True
+
+    if os.path.exists(TFLITE_PATH):
+        import tensorflow as tf
+        _tflite_interpreter = tf.lite.Interpreter(model_path=TFLITE_PATH)
+        _tflite_interpreter.allocate_tensors()
+        _tflite_input_details = _tflite_interpreter.get_input_details()
+        _tflite_output_details = _tflite_interpreter.get_output_details()
+        print(f"[gesture] Loaded TFLite model from {TFLITE_PATH}")
+        return True
+    elif os.path.exists(MODEL_PATH):
+        import tensorflow as tf
+        _cnn_model = tf.keras.models.load_model(MODEL_PATH)
+        _dummy = np.zeros((1, IMG_SIZE, IMG_SIZE, 1), dtype=np.float32)
+        _cnn_model(_dummy, training=False)
+        print(f"[gesture] Loaded Keras model from {MODEL_PATH}")
+        return True
+    else:
+        print(f"[gesture] No CNN model found")
+        return False
+
+
+def has_cnn_model():
+    """Check if a CNN model file exists (without loading it)."""
+    return os.path.exists(TFLITE_PATH) or os.path.exists(MODEL_PATH)
 
 # Landmark indices (used by rule-based fallback)
 FINGER_TIPS = [
@@ -95,20 +112,36 @@ def _majority_vote(history):
 
 
 class HandDetector:
-    """Detects up to 2 hands. Uses TFLite/CNN for classification if available,
-    otherwise falls back to rule-based finger counting.
+    """Detects up to 2 hands. Supports rule-based or CNN classification,
+    switchable at runtime via use_cnn property.
     Smooths results over a sliding window to reduce flicker."""
 
-    def __init__(self):
+    def __init__(self, use_cnn=False):
         self.hands = mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=2,
             min_detection_confidence=MIN_DETECTION_CONFIDENCE,
             min_tracking_confidence=MIN_TRACKING_CONFIDENCE,
         )
+        self._use_cnn = use_cnn
+        if use_cnn:
+            _load_cnn()
         # Smoothing buffers per hand
         self._left_history = deque(maxlen=SMOOTHING_WINDOW)
         self._right_history = deque(maxlen=SMOOTHING_WINDOW)
+
+    @property
+    def use_cnn(self):
+        return self._use_cnn
+
+    @use_cnn.setter
+    def use_cnn(self, value):
+        if value and not self._use_cnn:
+            _load_cnn()
+        self._use_cnn = value
+        # Clear smoothing buffers on mode switch
+        self._left_history.clear()
+        self._right_history.clear()
 
     def process_frame(self, frame):
         """Process a BGR frame (already flipped/mirrored).
@@ -130,10 +163,10 @@ class HandDetector:
             ):
                 mp_label = handedness_info.classification[0].label
 
-                # Classify BEFORE drawing landmarks (clean image for CNN)
-                if _tflite_interpreter is not None:
+                # Classify gesture (CNN or rule-based)
+                if self._use_cnn and _tflite_interpreter is not None:
                     count = self._classify_tflite(hand_landmarks, frame)
-                elif _cnn_model is not None:
+                elif self._use_cnn and _cnn_model is not None:
                     count = self._classify_cnn(hand_landmarks, frame)
                 else:
                     count = self._count_fingers_rules(hand_landmarks, mp_label)

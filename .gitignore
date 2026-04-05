@@ -9,8 +9,9 @@ models/*.tflite
 __pycache__/
 *.pyc
 
-# Dataset (user-collected)
+# Dataset
 dataset/
+dataset_raw/
 
 # IDE
 .idea/
