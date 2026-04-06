@@ -249,18 +249,6 @@ The synthesizer generates three waveform types using NumPy:
 
 ---
 
-## Adding Screenshots
-
-To complete this README with real screenshots, take the following and save them in `screenshots/`:
-
-1. **`app-ui.png`** — The app window at startup (before camera is started)
-2. **`app-running.png`** — The app with camera running and a note playing
-3. **`gesture-demo.png`** — Close-up showing hand detection with landmarks
-4. **`data-collection.png`** — The data collector window during recording
-5. **`ui-layout.png`** — Annotated screenshot of the full UI layout
-
----
-
 ## License
 
 This project was built as a university coursework project.
