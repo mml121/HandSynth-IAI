@@ -34,27 +34,40 @@ BATCH_SIZE = 32
 
 
 def load_dataset():
-    """Load images and labels from dataset/ folder."""
+    """Load images and labels from dataset/<hand>/<class>/ folders."""
     images = []
     labels = []
 
-    for class_id in range(NUM_CLASSES):
-        class_dir = os.path.join(DATASET_DIR, str(class_id))
-        if not os.path.exists(class_dir):
-            print(f"Warning: {class_dir} not found, skipping class {class_id}")
-            continue
+    hands_found = []
+    for hand in ("left", "right"):
+        hand_dir = os.path.join(DATASET_DIR, hand)
+        if os.path.exists(hand_dir):
+            hands_found.append(hand)
 
-        files = os.listdir(class_dir)
-        print(f"  Class {class_id} ({class_id} fingers): {len(files)} images")
+    # Support both old flat layout (dataset/0/) and new layout (dataset/left/0/)
+    if not hands_found:
+        search_dirs = [("", DATASET_DIR)]
+    else:
+        search_dirs = [(h, os.path.join(DATASET_DIR, h)) for h in hands_found]
 
-        for fname in files:
-            path = os.path.join(class_dir, fname)
-            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-            if img is None:
+    for hand_label, base_dir in search_dirs:
+        prefix = f"  [{hand_label.upper()}] " if hand_label else "  "
+        for class_id in range(NUM_CLASSES):
+            class_dir = os.path.join(base_dir, str(class_id))
+            if not os.path.exists(class_dir):
                 continue
-            img = cv2.resize(img, (IMG_SIZE, IMG_SIZE))
-            images.append(img)
-            labels.append(class_id)
+
+            files = os.listdir(class_dir)
+            print(f"{prefix}Class {class_id} ({class_id} fingers): {len(files)} images")
+
+            for fname in files:
+                path = os.path.join(class_dir, fname)
+                img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    continue
+                img = cv2.resize(img, (IMG_SIZE, IMG_SIZE))
+                images.append(img)
+                labels.append(class_id)
 
     images = np.array(images, dtype=np.float32) / 255.0
     images = images.reshape(-1, IMG_SIZE, IMG_SIZE, 1)

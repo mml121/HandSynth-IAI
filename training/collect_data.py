@@ -1,26 +1,25 @@
-# collect_data.py — Auto-collect labeled hand gesture images using MediaPipe
+# collect_data.py — Collect labeled hand gesture images for LEFT and RIGHT hands
 #
 # How it works:
-#   1. MediaPipe detects your hand and counts fingers (the old way)
+#   1. MediaPipe detects up to 2 hands and identifies left/right
 #   2. It crops the hand region, resizes to 64x64 grayscale
-#   3. Saves images into dataset/<finger_count>/ folders
+#   3. Saves images into dataset/<hand>/<finger_count>/ folders
 #
 # Usage:
-#   python collect_data.py
+#   python -m training.collect_data
 #
 # Controls:
 #   SPACE  — start/stop collecting for the current gesture
 #   0–5    — switch target class (which finger count you're showing)
+#   L / R  — switch which hand you're recording
 #   Q      — quit
 #
-# Aim for ~200–400 images per class. Move your hand around, vary angles.
+# Aim for ~200–400 images per class per hand. Move your hand around, vary angles.
 
 import os
 import sys
 import cv2
 import mediapipe as mp
-import numpy as np
-
 # Allow running directly: python training/collect_data.py
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _PROJECT_ROOT)
@@ -84,10 +83,28 @@ def get_hand_bbox(hand_landmarks, frame_shape):
     return x_min, y_min, x_max, y_max
 
 
-def main():
-    # Create dataset folders
+def get_hand_dir(hand_name):
+    """Return dataset path for a hand (left or right)."""
+    return os.path.join(DATASET_DIR, hand_name.lower())
+
+
+def count_existing(hand_name):
+    """Count existing images per class for a hand."""
+    counts = {}
     for i in range(6):
-        os.makedirs(os.path.join(DATASET_DIR, str(i)), exist_ok=True)
+        class_dir = os.path.join(get_hand_dir(hand_name), str(i))
+        if os.path.exists(class_dir):
+            counts[i] = len(os.listdir(class_dir))
+        else:
+            counts[i] = 0
+    return counts
+
+
+def main():
+    # Create dataset folders for both hands
+    for hand in ("left", "right"):
+        for i in range(6):
+            os.makedirs(os.path.join(get_hand_dir(hand), str(i)), exist_ok=True)
 
     cap = cv2.VideoCapture(CAMERA_INDEX)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
@@ -95,18 +112,22 @@ def main():
 
     hands = mp_hands.Hands(
         static_image_mode=False,
-        max_num_hands=1,
+        max_num_hands=2,
         min_detection_confidence=0.7,
         min_tracking_confidence=0.6,
     )
 
-    target_class = 0    # which class we're collecting
-    collecting = False   # whether we're saving images
-    img_count = {i: len(os.listdir(os.path.join(DATASET_DIR, str(i)))) for i in range(6)}
+    target_class = 0
+    target_hand = "right"  # which hand we're recording
+    collecting = False
+    img_count = {
+        "left": count_existing("left"),
+        "right": count_existing("right"),
+    }
 
     print("=== Hand Gesture Data Collector ===")
-    print("Keys: 0-5 = select class | SPACE = start/stop collecting | Q = quit")
-    print(f"Images will be saved to {DATASET_DIR}/")
+    print("Keys: 0-5 = select class | L/R = select hand | SPACE = start/stop | Q = quit")
+    print(f"Images will be saved to {DATASET_DIR}/<hand>/<class>/")
     print()
 
     while True:
@@ -118,48 +139,63 @@ def main():
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(rgb)
 
-        detected_fingers = -1
-        hand_crop = None
+        # Find the target hand in detections
+        detected_hands = {}  # label -> (index, landmarks, handedness)
 
         if results.multi_hand_landmarks and results.multi_handedness:
-            hand = results.multi_hand_landmarks[0]
-            mp_label = results.multi_handedness[0].classification[0].label
+            for idx, (hand_lm, hand_info) in enumerate(
+                zip(results.multi_hand_landmarks, results.multi_handedness)
+            ):
+                # MediaPipe mirrors labels in selfie mode (flipped frame),
+                # so "Right" from MP = user's right hand in a flipped image
+                mp_label = hand_info.classification[0].label
+                detected_hands[mp_label.lower()] = (idx, hand_lm, mp_label)
 
-            detected_fingers = count_fingers(hand, mp_label)
-
-            # Crop hand region BEFORE drawing landmarks (clean image for CNN)
-            x1, y1, x2, y2 = get_hand_bbox(hand, frame.shape)
+        # Process and draw all detected hands
+        for label, (idx, hand_lm, mp_label) in detected_hands.items():
+            fingers = count_fingers(hand_lm, mp_label)
+            x1, y1, x2, y2 = get_hand_bbox(hand_lm, frame.shape)
             hand_roi = frame[y1:y2, x1:x2]
 
+            is_target = (label == target_hand)
+
+            # Draw landmarks
+            mp_drawing.draw_landmarks(frame, hand_lm, mp_hands.HAND_CONNECTIONS)
+
+            # Draw bounding box — green if target & collecting, cyan if target, grey otherwise
+            if is_target and collecting:
+                box_color = (0, 255, 0)
+            elif is_target:
+                box_color = (255, 255, 0)
+            else:
+                box_color = (128, 128, 128)
+
             if hand_roi.size > 0:
+                cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
+                # Label which hand
+                cv2.putText(frame, label.upper(), (x1, y1 - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
+
+            # Save image if this is the target hand and we're collecting
+            if is_target and collecting and hand_roi.size > 0:
                 gray = cv2.cvtColor(hand_roi, cv2.COLOR_BGR2GRAY)
                 hand_crop = cv2.resize(gray, (IMG_SIZE, IMG_SIZE))
-
-            # Draw landmarks and bounding box AFTER cropping
-            mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
-            if hand_roi.size > 0:
-                color = (0, 255, 0) if collecting else (255, 255, 0)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-            # Save image if collecting
-            if collecting and hand_crop is not None:
-                save_path = os.path.join(DATASET_DIR, str(target_class), f"{img_count[target_class]:04d}.jpg")
+                save_dir = os.path.join(get_hand_dir(target_hand), str(target_class))
+                save_path = os.path.join(save_dir, f"{img_count[target_hand][target_class]:04d}.jpg")
                 cv2.imwrite(save_path, hand_crop)
-                img_count[target_class] += 1
+                img_count[target_hand][target_class] += 1
 
         # Display info on frame
         status = "COLLECTING" if collecting else "PAUSED"
         color = (0, 0, 255) if collecting else (200, 200, 200)
-        cv2.putText(frame, f"Class: {target_class} fingers | {status}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-        cv2.putText(frame, f"Detected: {detected_fingers} fingers", (10, 65),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+        cv2.putText(frame, f"Hand: {target_hand.upper()} | Class: {target_class} | {status}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
-        # Show counts for all classes
-        y_pos = 100
+        # Show counts for target hand
+        y_pos = 65
         for i in range(6):
             marker = " <--" if i == target_class else ""
-            cv2.putText(frame, f"  {i} fingers: {img_count[i]} imgs{marker}", (10, y_pos),
+            cv2.putText(frame, f"  {i} fingers: {img_count[target_hand][i]} imgs{marker}", (10, y_pos),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 180, 180), 1)
             y_pos += 25
 
@@ -171,19 +207,29 @@ def main():
         elif key == ord(" "):
             collecting = not collecting
             state = "STARTED" if collecting else "STOPPED"
-            print(f"[{state}] Collecting class {target_class} — {img_count[target_class]} images so far")
+            print(f"[{state}] {target_hand.upper()} hand, class {target_class} — {img_count[target_hand][target_class]} images so far")
         elif ord("0") <= key <= ord("5"):
             target_class = key - ord("0")
             collecting = False
             print(f"Switched to class {target_class} ({target_class} fingers)")
+        elif key == ord("l"):
+            target_hand = "left"
+            collecting = False
+            print(f"Switched to LEFT hand")
+        elif key == ord("r"):
+            target_hand = "right"
+            collecting = False
+            print(f"Switched to RIGHT hand")
 
     cap.release()
     hands.close()
     cv2.destroyAllWindows()
 
     print("\n=== Collection complete ===")
-    for i in range(6):
-        print(f"  {i} fingers: {img_count[i]} images")
+    for hand in ("left", "right"):
+        print(f"\n  {hand.upper()} hand:")
+        for i in range(6):
+            print(f"    {i} fingers: {img_count[hand][i]} images")
 
 
 if __name__ == "__main__":
