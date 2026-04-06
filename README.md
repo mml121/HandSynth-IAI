@@ -55,6 +55,7 @@ Webcam --> MediaPipe Hand Detection --> Gesture Classification --> Sound Synthes
 ```
 HandSynth/
 |-- app.py                    # Main application (PyQt6 UI)
+|-- evaluation.ipynb          # Model metrics & visualizations notebook
 |-- requirements.txt          # Python dependencies
 |
 |-- src/
@@ -169,6 +170,25 @@ This will:
 - Save `models/gesture_model.keras` and `models/gesture_model.tflite`
 
 The TFLite model is used at runtime for faster inference.
+
+### Step 3: Evaluate
+
+Open `evaluation.ipynb` in Jupyter to generate research-grade visualizations and metrics:
+
+- Dataset class distribution (overall + per-hand)
+- Sample images grid per gesture class
+- Training curves (loss & accuracy)
+- Confusion matrix
+- Per-class precision, recall & F1-score
+- ROC curves with AUC (one-vs-rest)
+- Prediction confidence analysis
+- Inference latency benchmark (Keras vs TFLite)
+- Model size comparison
+- Waveform & FFT spectrum plots
+- Misclassified sample analysis
+- Full summary table for paper results section
+
+All plots auto-save to `screenshots/` in the neon-green dark theme.
 
 ---
 
