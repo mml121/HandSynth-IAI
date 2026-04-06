@@ -21,60 +21,66 @@ from src.config import (
 # ────────────────────────────────────────────────────────────────
 #  STYLESHEET
 # ────────────────────────────────────────────────────────────────
-QSS = """
-QMainWindow, QWidget {
+NEON = "#00FF41"
+NEON_DIM = "#00AA2A"
+NEON_DARK = "#005F15"
+NEON_FAINT = "#003D0F"
+
+QSS = f"""
+QMainWindow, QWidget {{
     background-color: #000;
-    color: #fff;
-}
-QLabel {
-    color: #fff;
+    color: {NEON};
+}}
+QLabel {{
+    color: {NEON};
     background: transparent;
-}
-QLabel#dim {
-    color: #777;
-}
-QLabel#accent {
-    color: #aaa;
-}
-QPushButton {
+}}
+QLabel#dim {{
+    color: {NEON_DARK};
+}}
+QLabel#accent {{
+    color: {NEON_DIM};
+}}
+QPushButton {{
     background-color: transparent;
-    color: #999;
-    border: 1px solid #444;
+    color: {NEON_DIM};
+    border: 1px solid {NEON_DARK};
     padding: 10px 32px;
     font-size: 11px;
     letter-spacing: 3px;
-}
-QPushButton:hover {
+}}
+QPushButton:hover {{
+    color: {NEON};
+    border-color: {NEON};
+}}
+QPushButton:pressed {{
     color: #fff;
-    border-color: #aaa;
-}
-QPushButton:pressed {
-    color: #fff;
-    border-color: #fff;
-}
-QPushButton:disabled {
-    color: #444;
-    border-color: #222;
-}
-QPushButton#active {
-    color: #fff;
-    border-color: #fff;
-}
-QSlider::groove:horizontal {
-    background: #222;
-    height: 1px;
-}
-QSlider::handle:horizontal {
-    background: #fff;
+    border-color: {NEON};
+    background-color: {NEON_FAINT};
+}}
+QPushButton:disabled {{
+    color: {NEON_FAINT};
+    border-color: #0a1f0a;
+}}
+QPushButton#active {{
+    color: {NEON};
+    border-color: {NEON};
+}}
+QSlider::groove:horizontal {{
+    background: {NEON_FAINT};
+    height: 2px;
+}}
+QSlider::handle:horizontal {{
+    background: {NEON};
     width: 10px;
     height: 10px;
     margin: -5px 0;
     border-radius: 5px;
-}
-QSlider::sub-page:horizontal {
-    background: #555;
-    height: 1px;
-}
+}}
+QSlider::sub-page:horizontal {{
+    background: {NEON_DARK};
+    height: 2px;
+}}
 """
 
 
@@ -165,28 +171,35 @@ class NoteCircle(QWidget):
         cx, cy = self.width() // 2, self.height() // 2
         radius = 65
 
+        # ── Outer glow ring (faint) when active ──────────────
+        if self.active:
+            glow_pen = QPen(QColor(0, 255, 65, 30))
+            glow_pen.setWidthF(6)
+            p.setPen(glow_pen)
+            p.drawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
+
         # ── Circle ────────────────────────────────────────────
-        pen = QPen(QColor("#fff") if self.active else QColor("#555"))
+        pen = QPen(QColor(NEON) if self.active else QColor(NEON_DARK))
         pen.setWidthF(1.5)
         p.setPen(pen)
         p.drawEllipse(cx - radius, cy - radius, radius * 2, radius * 2)
 
         # ── Note name ─────────────────────────────────────────
         if self.note:
-            p.setPen(QColor("#fff"))
+            p.setPen(QColor(NEON))
             font = QFont("Consolas", 28)
             font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2)
             p.setFont(font)
             p.drawText(self.rect().adjusted(0, -14, 0, 0), Qt.AlignmentFlag.AlignCenter, self.note)
 
             # ── Sub-label (waveform) ──────────────────────────
-            p.setPen(QColor("#888"))
+            p.setPen(QColor(NEON_DIM))
             sub_font = QFont("Consolas", 9)
             sub_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2)
             p.setFont(sub_font)
             p.drawText(self.rect().adjusted(0, 30, 0, 0), Qt.AlignmentFlag.AlignCenter, self.sub.upper())
         else:
-            p.setPen(QColor("#555"))
+            p.setPen(QColor(NEON_DARK))
             font = QFont("Consolas", 9)
             font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 3)
             p.setFont(font)
@@ -216,7 +229,7 @@ def _label(text="", size=11, color="#fff", spacing=3, bold=False, align=Qt.Align
 class App(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("HAND SYNTH")
+        self.setWindowTitle("HAND  SYNTH")
         self.setMinimumSize(1100, 650)
         self.resize(1200, 700)
         self.setStyleSheet(QSS)
@@ -251,7 +264,7 @@ class App(QMainWindow):
         self._cam_label.setFixedSize(FRAME_WIDTH, FRAME_HEIGHT)
         self._cam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._cam_label.setStyleSheet(
-            "border: 1px solid #333; color: #555; font: 11px Consolas; letter-spacing: 3px;"
+            f"border: 1px solid {NEON_DARK}; color: {NEON_DARK}; font: 11px Consolas; letter-spacing: 3px;"
         )
         cam_container.addWidget(self._cam_label)
         root.addLayout(cam_container, stretch=3)
@@ -261,12 +274,18 @@ class App(QMainWindow):
         right.setAlignment(Qt.AlignmentFlag.AlignCenter)
         right.setSpacing(8)
 
-        right.addSpacerItem(QSpacerItem(0, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        # ── Title ─────────────────────────────────────────────
+        title = _label("HAND", size=26, color=NEON, spacing=12, bold=True)
+        right.addWidget(title)
+        subtitle = _label("SYNTH", size=26, color=NEON, spacing=12, bold=True)
+        right.addWidget(subtitle)
+
+        right.addSpacerItem(QSpacerItem(0, 20, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
         # Right hand info
-        self._rh_label = _label("RIGHT HAND", size=9, color="#666", spacing=4)
+        self._rh_label = _label("RIGHT HAND", size=9, color=NEON_DARK, spacing=4)
         right.addWidget(self._rh_label)
-        self._rh_status = _label("—", size=11, color="#888")
+        self._rh_status = _label("—", size=11, color=NEON_DIM)
         right.addWidget(self._rh_status)
 
         right.addSpacing(20)
@@ -279,15 +298,15 @@ class App(QMainWindow):
         right.addLayout(circle_row)
 
         # Frequency display
-        self._freq_label = _label("", size=10, color="#777")
+        self._freq_label = _label("", size=10, color=NEON_DIM)
         right.addWidget(self._freq_label)
 
         right.addSpacing(20)
 
         # Left hand info
-        self._lh_label = _label("LEFT HAND", size=9, color="#666", spacing=4)
+        self._lh_label = _label("LEFT HAND", size=9, color=NEON_DARK, spacing=4)
         right.addWidget(self._lh_label)
-        self._lh_status = _label("—", size=11, color="#888")
+        self._lh_status = _label("—", size=11, color=NEON_DIM)
         right.addWidget(self._lh_status)
 
         right.addSpacing(30)
@@ -303,7 +322,7 @@ class App(QMainWindow):
         self._vol_slider.valueChanged.connect(self._on_volume)
         vol_row.addWidget(self._vol_slider, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        vol_text = _label("VOL", size=8, color="#666", spacing=5)
+        vol_text = _label("VOL", size=8, color=NEON_DARK, spacing=5)
         vol_row.addWidget(vol_text)
 
         right.addLayout(vol_row)
@@ -350,7 +369,7 @@ class App(QMainWindow):
         # ── Guide (very subtle, bottom) ───────────────────────
         guide = _label(
             "R: 1-C  2-D  3-E  4-G  5-A   ·   L: 1-LOW  2-MID  3-HIGH  4-SQR  5-SAW",
-            size=8, color="#444", spacing=1
+            size=8, color=NEON_FAINT, spacing=1
         )
         right.addWidget(guide)
 
@@ -377,6 +396,9 @@ class App(QMainWindow):
         self._stop_btn.setEnabled(True)
         self._stop_btn.setObjectName("active")
         self._stop_btn.setStyleSheet(self._stop_btn.styleSheet())  # force re-style
+        self._cam_label.setStyleSheet(
+            f"border: 1px solid {NEON}; color: {NEON_DARK}; font: 11px Consolas; letter-spacing: 3px;"
+        )
 
     def _stop_camera(self):
         if self._cam_worker:
@@ -390,6 +412,9 @@ class App(QMainWindow):
 
         self._cam_label.setPixmap(QPixmap())
         self._cam_label.setText("INSERT\nCOIN")
+        self._cam_label.setStyleSheet(
+            f"border: 1px solid {NEON_DARK}; color: {NEON_DARK}; font: 11px Consolas; letter-spacing: 3px;"
+        )
         self._note_circle.set_state("", "", False)
         self._freq_label.setText("")
         self._rh_status.setText("—")
@@ -419,10 +444,10 @@ class App(QMainWindow):
             self._cur_waveform = info["waveform"]
             self._cur_octave = info["octave"]
             self._lh_status.setText(f"{info['label'].upper()}  ·  {info['waveform'].upper()}  OCT {info['octave']}")
-            self._lh_status.setStyleSheet("color: #aaa; background: transparent;")
+            self._lh_status.setStyleSheet("color: #00FF41; background: transparent;")
         else:
             self._lh_status.setText("—")
-            self._lh_status.setStyleSheet("color: #666; background: transparent;")
+            self._lh_status.setStyleSheet("color: #005F15; background: transparent;")
 
         # ── Right hand → note ─────────────────────────────
         if right_f >= 0:
@@ -430,7 +455,7 @@ class App(QMainWindow):
             note = info["note"]
             self._cur_note = note
             self._rh_status.setText(f"{info['label'].upper()}")
-            self._rh_status.setStyleSheet("color: #aaa; background: transparent;")
+            self._rh_status.setStyleSheet("color: #00FF41; background: transparent;")
 
             if note:
                 freq = get_frequency(note, self._cur_octave)
@@ -445,7 +470,7 @@ class App(QMainWindow):
                 self._freq_label.setText("")
         else:
             self._rh_status.setText("—")
-            self._rh_status.setStyleSheet("color: #666; background: transparent;")
+            self._rh_status.setStyleSheet("color: #005F15; background: transparent;")
             self._synth.mute()
             self._cur_note = None
             self._cur_freq = 0
