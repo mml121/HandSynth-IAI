@@ -1,9 +1,5 @@
 .claude
 
-# Models (large binary files)
-models/*.keras
-models/*.tflite
-
 # Python
 __pycache__/
 *.pyc
